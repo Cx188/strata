@@ -7,7 +7,7 @@ repository.
 
 ## Download
 
-[Download the latest Strata release](https://github.com/ProjectStrata/launcher/releases/latest).
+[Download the latest Strata release](https://github.com/Cx188/strata/releases/latest).
 
 Each player-facing release contains exactly three installers:
 
@@ -22,7 +22,7 @@ Each player-facing release contains exactly three installers:
 ### Windows PowerShell
 
 ```powershell
-irm https://raw.githubusercontent.com/ProjectStrata/launcher/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Cx188/strata/main/install.ps1 | iex
 ```
 
 The script asks where to install Strata, creates a desktop shortcut, and starts
@@ -31,7 +31,7 @@ the launcher.
 ### Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ProjectStrata/launcher/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Cx188/strata/main/install.sh | sh
 ```
 
 The script installs the latest AppImage, creates menu and desktop shortcuts
@@ -40,14 +40,14 @@ when supported, and starts Strata.
 ### macOS
 
 Download the DMG from the
-[latest release](https://github.com/ProjectStrata/launcher/releases/latest),
+[latest release](https://github.com/Cx188/strata/releases/latest),
 open it, and drag Strata into Applications.
 
 ## Automatic updates
 
 Strata checks for updates when it starts. Technical update manifests,
 differential blockmaps, and updater-only packages live in the separate
-[`ProjectStrata/launcher-updates`](https://github.com/ProjectStrata/launcher-updates)
+[`Cx188/strata-updates`](https://github.com/Cx188/strata-updates)
 repository so this download page stays simple.
 
 ## Safety

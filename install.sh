@@ -42,7 +42,7 @@ case "$install_dir" in
   *) install_dir="$(pwd)/$install_dir" ;;
 esac
 
-release_api='https://api.github.com/repos/ProjectStrata/launcher/releases/latest'
+release_api='https://api.github.com/repos/Cx188/strata/releases/latest'
 release_json="$(curl -fsSL \
   -H 'Accept: application/vnd.github+json' \
   -H 'User-Agent: Strata-Linux-Installer' \
@@ -88,7 +88,7 @@ icon_path="${icon_dir}/strata.png"
 mkdir -p "$icon_dir"
 curl -fsSL \
   -H 'User-Agent: Strata-Linux-Installer' \
-  'https://raw.githubusercontent.com/ProjectStrata/launcher/main/assets/strata.png' \
+  'https://raw.githubusercontent.com/Cx188/strata/main/assets/strata.png' \
   -o "$icon_path" || rm -f "$icon_path"
 
 applications_dir="${HOME}/.local/share/applications"

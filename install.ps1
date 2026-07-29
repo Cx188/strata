@@ -26,7 +26,7 @@ if (-not $InstallDir) {
 
 $InstallDir = [Environment]::ExpandEnvironmentVariables($InstallDir)
 $InstallDir = [IO.Path]::GetFullPath($InstallDir)
-$releaseApi = 'https://api.github.com/repos/ProjectStrata/launcher/releases/latest'
+$releaseApi = 'https://api.github.com/repos/Cx188/strata/releases/latest'
 $headers = @{
   Accept = 'application/vnd.github+json'
   'User-Agent' = 'Strata-Windows-Installer'

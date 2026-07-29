@@ -43,7 +43,7 @@ jobs:
         run: |
           mkdir release
           gh release download "$RELEASE_TAG" \
-            --repo ProjectStrata/launcher-updates \
+            --repo Cx188/strata-updates \
             --dir release \
             --pattern "Strata-Windows-Setup-$RELEASE_VERSION.exe" \
             --pattern "Strata-macOS-Universal-$RELEASE_VERSION.dmg" \
@@ -54,7 +54,7 @@ jobs:
       - name: Publish clean player-facing release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ProjectStrata/launcher
+          GH_REPO: Cx188/strata
           RELEASE_TAG: ${{ steps.request.outputs.tag }}
           RELEASE_VERSION: ${{ steps.request.outputs.version }}
           SOURCE_SHA: ${{ steps.request.outputs.source_sha }}
