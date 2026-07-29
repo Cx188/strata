@@ -1,0 +1,20 @@
+[
+  {
+    "id": "new-ui-2026-07",
+    "title": "A new layer for Strata",
+    "body": "The Play screen has been rebuilt around your active instance, profile, loadout, and a faster launch flow.",
+    "date": "July 2026"
+  },
+  {
+    "id": "automatic-updates-2026-07",
+    "title": "Updates now arrive automatically",
+    "body": "Strata can download new stable releases in the background and install them on restart.",
+    "date": "July 2026"
+  },
+  {
+    "id": "discord-presence-2026-07",
+    "title": "Discord presence is ready",
+    "body": "Show what you are playing, your current instance, and session status directly on Discord.",
+    "date": "July 2026"
+  }
+]
