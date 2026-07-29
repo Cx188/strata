@@ -8,7 +8,7 @@
   {
     "id": "automatic-updates-2026-07",
     "title": "Updates now arrive automatically",
-    "body": "Strata can download new stable releases in the background and install them on restart.",
+    "body": "Strata can download new main-branch releases in the background and install them on restart.",
     "date": "July 2026"
   },
   {

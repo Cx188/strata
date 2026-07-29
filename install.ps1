@@ -61,6 +61,8 @@ try {
   }
 
   Write-Host 'Installing Strata...'
+  # NSIS requires /D to be the final argument and treats the remainder as the
+  # destination, including spaces.
   $installProcess = Start-Process `
     -FilePath $temporaryInstaller `
     -ArgumentList "/S /D=$InstallDir" `
