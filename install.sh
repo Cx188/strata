@@ -48,12 +48,27 @@ release_json="$(curl -fsSL \
   -H 'User-Agent: Strata-Linux-Installer' \
   "$release_api")"
 
-appimage_url="$(printf '%s\n' "$release_json" |
-  sed -n 's/.*"browser_download_url":[[:space:]]*"\([^"]*\.AppImage\)".*/\1/p' |
-  head -n 1)"
+appimage_metadata="$(printf '%s\n' "$release_json" | awk '
+  /"name":[[:space:]]*"Strata-Linux-.*\.AppImage"/ { in_asset = 1 }
+  in_asset && /"digest":[[:space:]]*"sha256:[a-fA-F0-9]{64}"/ {
+    digest = $0
+    sub(/^.*"digest":[[:space:]]*"/, "", digest)
+    sub(/".*$/, "", digest)
+  }
+  in_asset && /"browser_download_url":[[:space:]]*"[^"]*\.AppImage"/ {
+    url = $0
+    sub(/^.*"browser_download_url":[[:space:]]*"/, "", url)
+    sub(/".*$/, "", url)
+    print digest
+    print url
+    exit
+  }
+')"
+appimage_digest="$(printf '%s\n' "$appimage_metadata" | sed -n '1p')"
+appimage_url="$(printf '%s\n' "$appimage_metadata" | sed -n '2p')"
 
-if [ -z "$appimage_url" ]; then
-  printf '%s\n' 'The latest Strata release does not contain a Linux AppImage.' >&2
+if [ -z "$appimage_url" ] || [ -z "$appimage_digest" ]; then
+  printf '%s\n' 'The latest Strata release is missing a verifiable Linux AppImage.' >&2
   exit 1
 fi
 
@@ -72,6 +87,22 @@ curl -fL \
   -H 'User-Agent: Strata-Linux-Installer' \
   "$appimage_url" \
   -o "$temporary_appimage"
+
+printf '%s\n' 'Verifying download...'
+expected_digest="${appimage_digest#sha256:}"
+if command -v sha256sum >/dev/null 2>&1; then
+  actual_digest="$(sha256sum "$temporary_appimage" | awk '{ print $1 }')"
+elif command -v shasum >/dev/null 2>&1; then
+  actual_digest="$(shasum -a 256 "$temporary_appimage" | awk '{ print $1 }')"
+else
+  printf '%s\n' 'SHA-256 verification requires sha256sum or shasum.' >&2
+  exit 1
+fi
+
+if [ "$(printf '%s' "$actual_digest" | tr 'A-F' 'a-f')" != "$(printf '%s' "$expected_digest" | tr 'A-F' 'a-f')" ]; then
+  printf '%s\n' 'The downloaded AppImage failed SHA-256 verification. Nothing was installed.' >&2
+  exit 1
+fi
 
 mkdir -p "$install_dir"
 appimage_path="${install_dir}/Strata.AppImage"

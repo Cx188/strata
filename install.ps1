@@ -52,12 +52,13 @@ try {
   Invoke-WebRequest -Uri $setupAsset.browser_download_url -Headers $headers -OutFile $temporaryInstaller
 
   $expectedDigest = [string]$setupAsset.digest
-  if ($expectedDigest -match '^sha256:(?<hash>[a-fA-F0-9]{64})$') {
-    Write-Host 'Verifying download...'
-    $actualDigest = (Get-FileHash -LiteralPath $temporaryInstaller -Algorithm SHA256).Hash
-    if ($actualDigest -ne $Matches.hash) {
-      throw 'The downloaded installer failed SHA-256 verification. Nothing was installed.'
-    }
+  if ($expectedDigest -notmatch '^sha256:(?<hash>[a-fA-F0-9]{64})$') {
+    throw 'The latest Strata release is missing a verifiable Windows installer.'
+  }
+  Write-Host 'Verifying download...'
+  $actualDigest = (Get-FileHash -LiteralPath $temporaryInstaller -Algorithm SHA256).Hash
+  if ($actualDigest -ne $Matches.hash) {
+    throw 'The downloaded installer failed SHA-256 verification. Nothing was installed.'
   }
 
   Write-Host 'Installing Strata...'
