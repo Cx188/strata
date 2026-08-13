@@ -58,27 +58,36 @@ jobs:
           RELEASE_TAG: ${{ steps.request.outputs.tag }}
           RELEASE_VERSION: ${{ steps.request.outputs.version }}
         run: |
-          NEWS_JSON="$(curl --fail --silent --show-error --max-time 15 https://api.stratamc.net/v1/news || printf '[]')"
-          NEWS_TITLE="$(jq -r '.[0].title // "Strata update"' <<<"$NEWS_JSON")"
-          NEWS_BODY="$(jq -r '.[0].body // "This release includes launcher improvements and fixes."' <<<"$NEWS_JSON")"
+          NEWS_JSON="$(curl --fail --silent --show-error \
+            --retry 3 --retry-all-errors --connect-timeout 5 --max-time 20 \
+            --user-agent 'Strata-Release/1.0 (+https://stratamc.net)' \
+            https://api.stratamc.net/v1/news || printf '[]')"
+          NEWS_BODY="$(jq -r '
+            if length == 0 then
+              "### Strata update\n\nThis release includes launcher improvements and fixes."
+            else
+              map("### " + .title + "\n\n" + .body) | join("\n\n")
+            end
+          ' <<<"$NEWS_JSON")"
           cat > release-notes.md <<EOF
           ## What's new
-
-          ### $NEWS_TITLE
 
           $NEWS_BODY
           EOF
 
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release/* --clobber
             gh release edit "$RELEASE_TAG" \
               --title "Strata $RELEASE_VERSION" \
               --notes-file release-notes.md \
               --latest
           else
-            gh release create "$RELEASE_TAG" release/* \
+            gh release create "$RELEASE_TAG" \
               --target "$GITHUB_SHA" \
               --title "Strata $RELEASE_VERSION" \
               --notes-file release-notes.md \
               --latest
           fi
+
+          for asset in release/*; do
+            gh release upload "$RELEASE_TAG" "$asset" --clobber
+          done
