@@ -1,9 +1,8 @@
 # Strata Launcher
 
 This is the official public distribution repository for Strata. It contains
-player downloads, installation helpers, launcher news, and the curated
-extension catalog. The launcher source code is maintained in a separate private
-repository.
+player downloads, installation helpers, and launcher news. The launcher source
+code is maintained in a separate private repository.
 
 ## Download
 
@@ -52,5 +51,12 @@ repository so this download page stays simple.
 
 ## Safety
 
-Only install Strata from this repository. Strata is not affiliated with Mojang
-Studios or Microsoft.
+Only install Strata from this repository or <https://stratamc.net>. The command
+installers verify the selected GitHub release asset with SHA-256 before running
+or installing it.
+
+Current packages are not code-signed, so Windows SmartScreen, antivirus tools,
+or macOS Gatekeeper may warn. Do not bypass a warning for a file obtained from
+any other source.
+
+Strata is independent and is not affiliated with Mojang Studios or Microsoft.
