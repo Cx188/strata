@@ -56,6 +56,14 @@ Only install Strata from this repository or <https://stratamc.net>. The command
 installers verify the selected GitHub release asset with SHA-256 before running
 or installing it.
 
+Releases are published through a manually approved environment, are immutable after publication, and include GitHub build attestations. You can verify a downloaded installer with GitHub CLI:
+
+```sh
+gh attestation verify ./Strata-PLATFORM-VERSION -R Cx188/strata
+```
+
+Replace the example path with the installer you downloaded.
+
 Current packages are not code-signed, so Windows SmartScreen, antivirus tools,
 or macOS Gatekeeper may warn. Do not bypass a warning for a file obtained from
 any other source.
