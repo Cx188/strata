@@ -1,13 +1,18 @@
 name: Publish player downloads
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - release-request.json
+      - .github/workflows/publish.yml
   push:
     branches: [main]
     paths: [release-request.json]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: strata-player-release
@@ -15,9 +20,19 @@ concurrency:
 
 jobs:
   publish:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    environment: production-release
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Read and validate release request
         id: request
@@ -51,6 +66,21 @@ jobs:
 
           test "$(find release -maxdepth 1 -type f | wc -l)" -eq 3
 
+          gh release download "$RELEASE_TAG" \
+            --repo Cx188/strata-updates \
+            --dir checksums \
+            --pattern SHA256SUMS
+          grep -E "Strata-(Windows-Setup|macOS-Universal|Linux-x86_64)-$RELEASE_VERSION\.(exe|dmg|AppImage)$" \
+            checksums/SHA256SUMS > release/SHA256SUMS.verify
+          test "$(wc -l < release/SHA256SUMS.verify)" -eq 3
+          (cd release && sha256sum --check SHA256SUMS.verify)
+          rm release/SHA256SUMS.verify
+
+      - name: Attest player installers
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: release/*
+
       - name: Publish clean player-facing release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -75,19 +105,18 @@ jobs:
           $NEWS_BODY
           EOF
 
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" \
-              --title "Strata $RELEASE_VERSION" \
-              --notes-file release-notes.md \
-              --latest
-          else
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" \
+              --draft \
               --target "$GITHUB_SHA" \
               --title "Strata $RELEASE_VERSION" \
-              --notes-file release-notes.md \
-              --latest
+              --notes-file release-notes.md
+          elif [[ "$(gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" --jq .draft)" != "true" ]]; then
+            echo "Release $RELEASE_TAG is already published and immutable."
+            exit 0
           fi
 
           for asset in release/*; do
             gh release upload "$RELEASE_TAG" "$asset" --clobber
           done
+          gh release edit "$RELEASE_TAG" --draft=false --latest
