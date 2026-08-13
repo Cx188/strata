@@ -1,5 +1,11 @@
 [
   {
+    "id": "project-details-and-release-readiness-2026-08",
+    "title": "Project details and release reliability",
+    "body": "Mod, modpack, and content results now open dedicated detail pages with versions, galleries, changelogs, compatibility context, and pack contents. This update also removes obsolete prototype code, cleans launcher lifecycle warnings, and makes cross-platform release jobs more resilient to temporary Electron download failures.",
+    "date": "August 2026"
+  },
+  {
     "id": "security-release-2026-08",
     "title": "Security and reliability update",
     "body": "Strata now verifies command-installer downloads, limits imported archives, protects privileged windows, and rejects unsafe external navigation.",
