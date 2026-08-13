@@ -58,8 +58,9 @@ jobs:
           RELEASE_TAG: ${{ steps.request.outputs.tag }}
           RELEASE_VERSION: ${{ steps.request.outputs.version }}
         run: |
-          NEWS_TITLE="$(jq -r '.[0].title // "Strata update"' news.json)"
-          NEWS_BODY="$(jq -r '.[0].body // "This release includes launcher improvements and fixes."' news.json)"
+          NEWS_JSON="$(curl --fail --silent --show-error --max-time 15 https://api.stratamc.net/v1/news || printf '[]')"
+          NEWS_TITLE="$(jq -r '.[0].title // "Strata update"' <<<"$NEWS_JSON")"
+          NEWS_BODY="$(jq -r '.[0].body // "This release includes launcher improvements and fixes."' <<<"$NEWS_JSON")"
           cat > release-notes.md <<EOF
           ## What's new
 

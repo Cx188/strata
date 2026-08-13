@@ -1,7 +1,8 @@
 # Strata Launcher
 
 This is the official public distribution repository for Strata. It contains
-player downloads, installation helpers, and launcher news. The launcher source
+player downloads, installation helpers, and player-facing release notes. Live
+launcher news is served by `api.stratamc.net`; the launcher source
 code is maintained in a separate private repository.
 
 ## Download
