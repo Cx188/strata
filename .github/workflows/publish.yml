@@ -9,7 +9,6 @@ on:
   push:
     branches: [main]
     paths: [release-request.json]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -69,7 +68,43 @@ jobs:
           gh release download "$RELEASE_TAG" \
             --repo Cx188/strata-updates \
             --dir checksums \
-            --pattern SHA256SUMS
+            --pattern SHA256SUMS \
+            --pattern SHA256SUMS.sig \
+            --pattern strata-release.json \
+            --pattern strata-release.sig
+
+          openssl pkeyutl -verify -rawin -pubin \
+            -inkey .github/strata-update-public.pem \
+            -in checksums/SHA256SUMS \
+            -sigfile checksums/SHA256SUMS.sig
+          openssl pkeyutl -verify -rawin -pubin \
+            -inkey .github/strata-update-public.pem \
+            -in checksums/strata-release.json \
+            -sigfile checksums/strata-release.sig
+          jq -e \
+            --arg version "$RELEASE_VERSION" \
+            --arg tag "$RELEASE_TAG" \
+            --arg sourceSha "${{ steps.request.outputs.source_sha }}" \
+            '.schemaVersion == 1 and .version == $version and .tag == $tag and .sourceSha == $sourceSha' \
+            checksums/strata-release.json >/dev/null
+
+          verify_manifest_asset() {
+            local platform="$1"
+            local file="$2"
+            local expected_name expected_size expected_sha512 actual_size actual_sha512
+            expected_name="$(jq -r --arg platform "$platform" '.assets[$platform].name' checksums/strata-release.json)"
+            expected_size="$(jq -r --arg platform "$platform" '.assets[$platform].size' checksums/strata-release.json)"
+            expected_sha512="$(jq -r --arg platform "$platform" '.assets[$platform].sha512' checksums/strata-release.json)"
+            actual_size="$(stat -c '%s' "$file")"
+            actual_sha512="$(openssl dgst -sha512 -binary "$file" | openssl base64 -A)"
+            test "$(basename "$file")" = "$expected_name"
+            test "$actual_size" = "$expected_size"
+            test "$actual_sha512" = "$expected_sha512"
+          }
+
+          verify_manifest_asset win32 "release/Strata-Windows-Setup-$RELEASE_VERSION.exe"
+          verify_manifest_asset linux "release/Strata-Linux-x86_64-$RELEASE_VERSION.AppImage"
+
           grep -E "Strata-(Windows-Setup|macOS-Universal|Linux-x86_64)-$RELEASE_VERSION\.(exe|dmg|AppImage)$" \
             checksums/SHA256SUMS > release/SHA256SUMS.verify
           test "$(wc -l < release/SHA256SUMS.verify)" -eq 3
@@ -91,7 +126,7 @@ jobs:
           NEWS_JSON="$(curl --fail --silent --show-error \
             --retry 3 --retry-all-errors --connect-timeout 5 --max-time 20 \
             --user-agent 'Strata-Release/1.0 (+https://stratamc.net)' \
-            https://api.stratamc.net/v1/news || printf '[]')"
+            "https://api.stratamc.net/v1/news?release=$RELEASE_VERSION" || printf '[]')"
           NEWS_BODY="$(jq -r '
             if length == 0 then
               "### Strata update\n\nThis release includes launcher improvements and fixes."
