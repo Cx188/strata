@@ -1,6 +1,27 @@
 #!/bin/sh
 
 set -eu
+umask 022
+
+fail() {
+  printf 'Strata installer: %s\n' "$1" >&2
+  exit 1
+}
+
+ensure_directory() {
+  directory="$1"
+  description="$2"
+
+  if [ -e "$directory" ] && [ ! -d "$directory" ]; then
+    fail "$description path exists but is not a directory: $directory"
+  fi
+  if ! mkdir -p "$directory"; then
+    fail "could not create $description directory: $directory"
+  fi
+  if [ ! -w "$directory" ]; then
+    fail "$description directory is not writable: $directory"
+  fi
+}
 
 if [ "$(uname -s)" != "Linux" ]; then
   printf '%s\n' 'This installer is for Linux. Use install.ps1 on Windows or download the macOS package from GitHub Releases.' >&2
@@ -8,8 +29,11 @@ if [ "$(uname -s)" != "Linux" ]; then
 fi
 
 if ! command -v curl >/dev/null 2>&1; then
-  printf '%s\n' 'Strata installation requires curl.' >&2
-  exit 1
+  fail 'installation requires curl.'
+fi
+
+if ! command -v od >/dev/null 2>&1; then
+  fail 'installation requires od to validate the AppImage.'
 fi
 
 case "$(uname -m)" in
@@ -19,6 +43,10 @@ case "$(uname -m)" in
     exit 1
     ;;
 esac
+
+if [ -z "${HOME:-}" ]; then
+  fail 'HOME is not set for the current user.'
+fi
 
 default_install_dir="${HOME}/.local/opt/strata"
 install_dir="${STRATA_INSTALL_DIR:-$default_install_dir}"
@@ -42,34 +70,39 @@ case "$install_dir" in
   *) install_dir="$(pwd)/$install_dir" ;;
 esac
 
-release_api='https://api.github.com/repos/Cx188/strata/releases/latest'
-release_json="$(curl -fsSL \
-  -H 'Accept: application/vnd.github+json' \
+ensure_directory "$install_dir" 'installation'
+
+latest_release_url="$(curl -fsSL \
+  --retry 3 \
+  --connect-timeout 10 \
+  --max-time 60 \
+  -o /dev/null \
+  -w '%{url_effective}' \
   -H 'User-Agent: Strata-Linux-Installer' \
-  "$release_api")"
+  'https://github.com/Cx188/strata/releases/latest')"
+release_tag="${latest_release_url##*/}"
 
-appimage_metadata="$(printf '%s\n' "$release_json" | awk '
-  /"name":[[:space:]]*"Strata-Linux-.*\.AppImage"/ { in_asset = 1 }
-  in_asset && /"digest":[[:space:]]*"sha256:[a-fA-F0-9]{64}"/ {
-    digest = $0
-    sub(/^.*"digest":[[:space:]]*"/, "", digest)
-    sub(/".*$/, "", digest)
-  }
-  in_asset && /"browser_download_url":[[:space:]]*"[^"]*\.AppImage"/ {
-    url = $0
-    sub(/^.*"browser_download_url":[[:space:]]*"/, "", url)
-    sub(/".*$/, "", url)
-    print digest
-    print url
-    exit
-  }
+if ! printf '%s\n' "$release_tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+  fail "GitHub returned an invalid latest release tag: $release_tag"
+fi
+
+release_version="${release_tag#v}"
+appimage_name="Strata-Linux-x86_64-${release_version}.AppImage"
+appimage_url="https://github.com/Cx188/strata/releases/download/${release_tag}/${appimage_name}"
+checksums_url="https://github.com/Cx188/strata-updates/releases/download/${release_tag}/SHA256SUMS"
+
+checksums="$(curl -fsSL \
+  --retry 3 \
+  --connect-timeout 10 \
+  --max-time 60 \
+  -H 'User-Agent: Strata-Linux-Installer' \
+  "$checksums_url")"
+expected_digest="$(printf '%s\n' "$checksums" | awk -v name="$appimage_name" '
+  $2 == name && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ { print $1; exit }
 ')"
-appimage_digest="$(printf '%s\n' "$appimage_metadata" | sed -n '1p')"
-appimage_url="$(printf '%s\n' "$appimage_metadata" | sed -n '2p')"
 
-if [ -z "$appimage_url" ] || [ -z "$appimage_digest" ]; then
-  printf '%s\n' 'The latest Strata release is missing a verifiable Linux AppImage.' >&2
-  exit 1
+if [ -z "$expected_digest" ]; then
+  fail "release $release_tag is missing a valid checksum for $appimage_name."
 fi
 
 temporary_appimage="$(mktemp "${TMPDIR:-/tmp}/strata-appimage.XXXXXX")"
@@ -83,13 +116,15 @@ printf 'Destination: %s\n' "$install_dir"
 printf '%s\n' 'Downloading the latest stable AppImage...'
 
 curl -fL \
+  --retry 3 \
+  --connect-timeout 10 \
+  --max-time 900 \
   -H 'Accept: application/octet-stream' \
   -H 'User-Agent: Strata-Linux-Installer' \
   "$appimage_url" \
   -o "$temporary_appimage"
 
 printf '%s\n' 'Verifying download...'
-expected_digest="${appimage_digest#sha256:}"
 if command -v sha256sum >/dev/null 2>&1; then
   actual_digest="$(sha256sum "$temporary_appimage" | awk '{ print $1 }')"
 elif command -v shasum >/dev/null 2>&1; then
@@ -100,23 +135,27 @@ else
 fi
 
 if [ "$(printf '%s' "$actual_digest" | tr 'A-F' 'a-f')" != "$(printf '%s' "$expected_digest" | tr 'A-F' 'a-f')" ]; then
-  printf '%s\n' 'The downloaded AppImage failed SHA-256 verification. Nothing was installed.' >&2
-  exit 1
+  fail 'the downloaded AppImage failed SHA-256 verification. Nothing was installed.'
 fi
 
-mkdir -p "$install_dir"
+elf_magic="$(od -An -tx1 -N4 "$temporary_appimage" | tr -d '[:space:]')"
+elf_machine="$(dd if="$temporary_appimage" bs=1 skip=18 count=2 2>/dev/null | od -An -tx1 | tr -d '[:space:]')"
+if [ "$elf_magic" != '7f454c46' ] || [ "$elf_machine" != '3e00' ]; then
+  fail 'the verified download is not a Linux x86_64 executable. Nothing was installed.'
+fi
+
 appimage_path="${install_dir}/Strata.AppImage"
 mv "$temporary_appimage" "$appimage_path"
 chmod 755 "$appimage_path"
 trap - EXIT HUP INT TERM
 
 bin_dir="${HOME}/.local/bin"
-mkdir -p "$bin_dir"
+ensure_directory "$bin_dir" 'command shortcut'
 ln -sfn "$appimage_path" "${bin_dir}/strata"
 
 icon_dir="${HOME}/.local/share/icons/hicolor/256x256/apps"
 icon_path="${icon_dir}/strata.png"
-mkdir -p "$icon_dir"
+ensure_directory "$icon_dir" 'icon'
 curl -fsSL \
   -H 'User-Agent: Strata-Linux-Installer' \
   'https://raw.githubusercontent.com/Cx188/strata/main/assets/strata.png' \
@@ -124,7 +163,7 @@ curl -fsSL \
 
 applications_dir="${HOME}/.local/share/applications"
 desktop_entry="${applications_dir}/strata.desktop"
-mkdir -p "$applications_dir"
+ensure_directory "$applications_dir" 'application shortcut'
 escaped_appimage_path="$(printf '%s' "$appimage_path" |
   sed 's/\\/\\\\/g; s/"/\\"/g; s/`/\\`/g; s/\$/\\$/g; s/%/%%/g')"
 
@@ -155,6 +194,14 @@ if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$applications_dir" >/dev/null 2>&1 || true
 fi
 
-printf '%s\n' 'Launching Strata...'
-nohup "$appimage_path" >/dev/null 2>&1 &
-printf '%s\n' 'Done. Strata is installed and its shortcuts are ready.'
+if [ "${STRATA_SKIP_LAUNCH:-0}" = '1' ]; then
+  printf '%s\n' 'Done. Strata is installed and its shortcuts are ready.'
+else
+  state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/strata"
+  ensure_directory "$state_dir" 'launcher log'
+  launch_log="${state_dir}/install-launch.log"
+  printf '%s\n' 'Launching Strata...'
+  nohup "$appimage_path" >"$launch_log" 2>&1 &
+  printf '%s\n' 'Done. Strata is installed and its shortcuts are ready.'
+  printf 'If no window appears, run %s or inspect %s.\n' "$appimage_path" "$launch_log"
+fi
