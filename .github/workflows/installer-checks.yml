@@ -1,0 +1,52 @@
+name: Check command installers
+
+on:
+  pull_request:
+    paths:
+      - install.sh
+      - install.ps1
+      - tests/**
+      - .github/workflows/installer-checks.yml
+  push:
+    branches: [main]
+    paths:
+      - install.sh
+      - install.ps1
+      - tests/**
+      - .github/workflows/installer-checks.yml
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check shell syntax
+        run: sh -n install.sh tests/install-linux.test.sh
+      - name: Exercise Linux installer paths and asset selection
+        run: sh tests/install-linux.test.sh
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check PowerShell syntax
+        shell: pwsh
+        run: |
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path ./install.ps1),
+            [ref]$null,
+            [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            $errors | Format-List | Out-String | Write-Error
+          }

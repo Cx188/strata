@@ -37,11 +37,24 @@ curl -fsSL https://raw.githubusercontent.com/Cx188/strata/main/install.sh | sh
 The script installs the latest AppImage, creates menu and desktop shortcuts
 when supported, and starts Strata.
 
+The default location is `~/.local/opt/strata`; the installer creates that path
+and its parent folders when they do not exist. To choose a location without an
+interactive prompt, set `STRATA_INSTALL_DIR`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Cx188/strata/main/install.sh |
+  STRATA_INSTALL_DIR="$HOME/Games/Strata" sh
+```
+
 ### macOS
 
 Download the DMG from the
 [latest release](https://github.com/Cx188/strata/releases/latest),
 open it, and drag Strata into Applications.
+
+macOS does not use the Linux shell installer or its release-selection logic.
+The published DMG is selected and checksum-verified by its exact platform file
+name before it reaches this repository.
 
 ## Automatic updates
 
