@@ -1,0 +1,171 @@
+# Windows PowerShell 5.1 or PowerShell 7. Run as the Windows user who used V1.
+# -Preview lists targets without changing files, processes, or registry entries.
+[CmdletBinding()]
+param([switch]$Preview)
+
+$ErrorActionPreference = 'Stop'
+
+function Get-V1FullPath([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not [IO.Path]::IsPathRooted($Path) -or $Path.StartsWith('\\')) {
+        throw "Refusing a relative, empty, or network path: $Path"
+    }
+    return [IO.Path]::GetFullPath($Path).TrimEnd('\')
+}
+
+function Assert-V1NoLinkedParents([string]$Path) {
+    $cursor = Get-V1FullPath $Path
+    while ($cursor) {
+        if (Test-Path -LiteralPath $cursor) {
+            $entry = Get-Item -LiteralPath $cursor -Force
+            if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Refusing a linked/junction path: $cursor. Nothing behind that link will be wiped."
+            }
+        }
+        $parent = [IO.Path]::GetDirectoryName($cursor)
+        if ($parent -eq $cursor) { break }
+        $cursor = $parent
+    }
+}
+
+function Remove-V1Tree([string]$Target, [string[]]$ApprovedPaths) {
+    $targetPath = Get-V1FullPath $Target
+    if ($ApprovedPaths -notcontains $targetPath) { throw "Path was not explicitly approved: $targetPath" }
+    Assert-V1NoLinkedParents $targetPath
+    if (-not (Test-Path -LiteralPath $targetPath)) { return }
+    # No recursive Remove-Item: never traverse junctions or symlinks inside data.
+    function Remove-V1Entry([string]$EntryPath) {
+        $entry = Get-Item -LiteralPath $EntryPath -Force
+        if (-not $entry.PSIsContainer) {
+            Remove-Item -LiteralPath $EntryPath -Force
+        } elseif ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            [IO.Directory]::Delete($EntryPath, $false)
+        } else {
+            foreach ($child in @(Get-ChildItem -LiteralPath $EntryPath -Force)) {
+                Remove-V1Entry $child.FullName
+            }
+            [IO.Directory]::Delete($EntryPath, $false)
+        }
+    }
+    Remove-V1Entry $targetPath
+}
+
+function Invoke-StrataV1Removal([switch]$PreviewOnly) {
+    $roaming = [Environment]::GetFolderPath('ApplicationData')
+    $local = [Environment]::GetFolderPath('LocalApplicationData')
+    if (-not $roaming -or -not $local) { throw 'Windows user folders could not be identified.' }
+    $data = Get-V1FullPath (Join-Path $roaming 'strata')
+    $cache = Get-V1FullPath (Join-Path $local 'strata-updater')
+    $oldGuid = '7999c224-2bed-58aa-87e4-afd1f7fec626'
+    $installers = @()
+    foreach ($hive in @('HKEY_CURRENT_USER', 'HKEY_LOCAL_MACHINE')) {
+        foreach ($branch in @('Software\Microsoft\Windows\CurrentVersion\Uninstall', 'Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')) {
+            $key = "Registry::${hive}\${branch}\${oldGuid}"
+            $record = Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
+            if (-not $record) { continue }
+            if ($record.DisplayVersion -notmatch '^1\.' -or $record.DisplayName -notmatch '^Strata(?:\s|$)' -or $record.Publisher -ne 'Project Strata') {
+                throw 'The old installer registration now belongs to a different product. Refusing to uninstall it.'
+            }
+            $command = [string]$record.UninstallString
+            if ($command -match '^"([^"]+\.exe)"(?:\s|$)') { $exe = $Matches[1] }
+            elseif ($command -match '^(.+?\.exe)(?:\s|$)') { $exe = $Matches[1] }
+            else { throw 'Unrecognized V1 uninstall command; nothing has been removed.' }
+            $exe = Get-V1FullPath $exe
+            Assert-V1NoLinkedParents $exe
+            if ([IO.Path]::GetFileName($exe) -ne 'Uninstall Strata.exe') { throw 'Unexpected V1 uninstaller filename.' }
+            $installRoot = [IO.Path]::GetDirectoryName($exe)
+            $broadPaths = @([IO.Path]::GetPathRoot($exe).TrimEnd('\'), $env:USERPROFILE, $roaming, $local,
+                [Environment]::GetFolderPath('DesktopDirectory'), [Environment]::GetFolderPath('MyDocuments'),
+                $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:WINDIR, (Join-Path $local 'Programs'),
+                (Join-Path $env:USERPROFILE 'Downloads'))
+            if ($broadPaths -contains $installRoot) { throw 'V1 was installed directly in a shared/system folder. Use a manual uninstall; this script will not risk that folder.' }
+            if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "V1 uninstaller is missing: $exe. Uninstall/repair V1 through Windows first, then rerun this script." }
+            $version = (Get-Item -LiteralPath $exe).VersionInfo
+            if ($version.ProductName -ne 'Strata' -or $version.FileVersion -notmatch '^1\.') { throw 'The uninstaller is not a legacy Strata V1 binary.' }
+            if (-not ($installers | Where-Object { $_.Exe -eq $exe })) {
+                $installers += [pscustomobject]@{ Exe = $exe; Machine = ($hive -eq 'HKEY_LOCAL_MACHINE'); Registry = $key }
+            }
+        }
+    }
+
+    $config = $null
+    $configFile = Join-Path $data 'config.json'
+    Assert-V1NoLinkedParents $data
+    if (Test-Path -LiteralPath $configFile -PathType Leaf) {
+        Assert-V1NoLinkedParents $configFile
+        $config = Get-Content -LiteralPath $configFile -Raw | ConvertFrom-Json
+        if (-not $config.PSObject.Properties['settings'] -or -not $config.PSObject.Properties['instances']) {
+            throw 'The data folder does not contain a recognizable V1 config; refusing to wipe it.'
+        }
+    } elseif ((Test-Path -LiteralPath $data) -and $installers.Count -eq 0) {
+        throw 'An unregistered data folder exists without V1 markers. Nothing will be guessed or deleted.'
+    }
+
+    $targets = @($data, $cache)
+    $instanceRoots = @(Join-Path $data 'instances')
+    $unresolved = @()
+    if ($config -and $config.settings.customInstanceDir) {
+        $customRoot = Get-V1FullPath $config.settings.customInstanceDir
+        Assert-V1NoLinkedParents $customRoot
+        $instanceRoots += $customRoot
+        foreach ($property in $config.instances.PSObject.Properties) {
+            $id = $property.Name
+            if ($id -notmatch '^[a-fA-F0-9]{8}(?:-[a-fA-F0-9-]{27})?$') { throw "Unexpected V1 instance ID: $id" }
+            $candidate = Get-V1FullPath (Join-Path $customRoot $id)
+            if (-not (Test-Path -LiteralPath $candidate)) { continue }
+            Assert-V1NoLinkedParents $candidate
+            $marker = Join-Path $candidate 'instance.json'
+            if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) { $unresolved += $candidate; continue }
+            Assert-V1NoLinkedParents $marker
+            $instance = Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json
+            if ($instance.id -ne $id -or $instance.mcVersion -ne $property.Value.mcVersion) { throw "Instance ownership check failed: $candidate" }
+            $targets += $candidate
+        }
+    }
+    $targets = @($targets | Select-Object -Unique)
+    foreach ($target in $targets) { Assert-V1NoLinkedParents $target }
+    $gameProcesses = @(Get-CimInstance Win32_Process | Where-Object {
+        $process = $_
+        $process.Name -match '^javaw?\.exe$' -and $process.CommandLine -and @($instanceRoots | Where-Object {
+            $process.CommandLine.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0
+        }).Count -gt 0
+    })
+    if ($gameProcesses.Count -gt 0) { throw 'A V1 Minecraft game is still running. Save your world and close Minecraft first.' }
+
+    Write-Host "`nStrata V1 removal - current Windows user only" -ForegroundColor Cyan
+    foreach ($installer in $installers) { Write-Host "Uninstall: $($installer.Exe)" }
+    foreach ($target in $targets) { Write-Host "Wipe (if present): $target" }
+    foreach ($path in $unresolved) { Write-Warning "NOT automatically wiping an unverified custom instance: $path" }
+    Write-Host 'Preserved: Strata V2, strataV1, .minecraft, and all unrelated folders.'
+    Write-Host 'WARNING: V1 worlds, screenshots, modpacks, accounts and settings in the listed folders are permanently deleted.' -ForegroundColor Yellow
+    if ($PreviewOnly) { Write-Host 'PREVIEW ONLY: nothing changed.'; return }
+    if ((Read-Host 'Back up anything you need, then type WIPE V1 to continue') -cne 'WIPE V1') { Write-Host 'Cancelled. Nothing changed.'; return }
+
+    foreach ($installer in $installers) {
+        $legacyExe = Join-Path ([IO.Path]::GetDirectoryName($installer.Exe)) 'Strata.exe'
+        $processes = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            try { $_.Path -and $_.Path.Equals($legacyExe, [StringComparison]::OrdinalIgnoreCase) } catch { $false }
+        })
+        foreach ($process in $processes) { if ($process.MainWindowHandle -ne 0) { [void]$process.CloseMainWindow() } }
+        foreach ($process in $processes) {
+            if (-not $process.WaitForExit(5000)) { Stop-Process -Id $process.Id -Force }
+        }
+        $flags = @('/S', '/currentuser')
+        if ($installer.Machine) { $flags = @('/S', '/allusers') }
+        $result = Start-Process -FilePath $installer.Exe -ArgumentList $flags -Wait -PassThru
+        if ($result.ExitCode -ne 0) { throw "V1 uninstaller exited with $($result.ExitCode); data has NOT been wiped." }
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        while ((Test-Path -LiteralPath $installer.Registry) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 250 }
+        if (Test-Path -LiteralPath $installer.Registry) { throw 'Windows still lists V1 as installed. Data has NOT been wiped; complete the uninstall first.' }
+    }
+    foreach ($target in $targets) { Remove-V1Tree -Target $target -ApprovedPaths $targets }
+    if ($unresolved.Count) {
+        Write-Warning 'PARTIAL: V1 uninstalled and verified data removed, but the unverified custom-instance paths listed above were preserved. Review them manually.'
+    } elseif ($installers.Count) {
+        Write-Host 'DONE: Strata V1 uninstalled; verified V1 data and updater cache wiped.' -ForegroundColor Green
+    } else {
+        Write-Host 'DONE: no registered V1 installer found; recognizable V1 data/cache leftovers wiped if present.' -ForegroundColor Green
+    }
+}
+
+Invoke-StrataV1Removal -PreviewOnly:$Preview
+

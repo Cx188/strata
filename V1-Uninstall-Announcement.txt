@@ -1,0 +1,24 @@
+Strata V1 is being retired as we move to Strata V2.
+
+Windows - uninstall V1 and remove its old data:
+
+1. Close Minecraft and the old Strata launcher. Save/export any worlds, screenshots or profiles you want to keep first. Wiping V1 data is permanent; it does not transfer your worlds to V2.
+2. Use the SAME Windows account you used for V1. Save the attached Uninstall-Strata-V1.ps1 file in Downloads. You do not normally need administrator mode for a per-user install.
+3. Open Windows PowerShell and preview the exact paths with this command:
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\Downloads\Uninstall-Strata-V1.ps1" -Preview
+
+4. If those paths are correct, run:
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\Downloads\Uninstall-Strata-V1.ps1"
+
+5. Type WIPE V1 at the confirmation. The script automatically finds V1's registered uninstaller, runs it, and wipes V1's own data and updater cache. It does not require your Windows username or a default installation location. If you already uninstalled V1, it can still remove recognizable V1 data left behind.
+
+It preserves Strata V2, the private strataV1 edition, your normal .minecraft folder, and unrelated files. It refuses ambiguous paths/junctions rather than risking another app's data. For custom instance directories, it removes only individually verified V1 instance folders, never the entire custom directory. If a path cannot be verified, the warning explicitly lists what was left behind.
+
+This removes data only for the Windows account running it, not other people's Windows accounts. If you changed Downloads to another location, replace the script filename in the command with its actual saved path. ExecutionPolicy Bypass applies only to this one PowerShell process; it does not change your system-wide policy.
+
+Manual alternative: Windows Settings > Apps > Installed apps > Strata 1.x > Uninstall. Then Win+R > %APPDATA%\strata and delete that V1 folder AFTER backing up your worlds; also delete %LOCALAPPDATA%\strata-updater if it exists. The standard V1 uninstaller preserves game data by default, so uninstall alone is not a complete wipe. Do not delete %LOCALAPPDATA%\Strata or com.strata.launcher: those may belong to V2. A custom instance directory must be handled separately, without deleting unrelated folders.
+
+The script can also be copied in full and pasted inside an & { ... } block in PowerShell; use the attached file method above if you are unfamiliar with PowerShell.
+
